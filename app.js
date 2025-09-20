@@ -50,45 +50,78 @@ class ScreenRecorder {
         this.status.className = `status ${type}`;
     }
 
+    async getElectronScreenStream() {
+        if (!window.electronAPI || !window.electronAPI.getDesktopSources) {
+            return null;
+        }
+
+        // Get available screen sources from Electron
+        const sources = await window.electronAPI.getDesktopSources({ types: ['screen'] });
+        if (!sources || sources.length === 0) {
+            throw new Error('No screen sources available');
+        }
+
+        // Prefer primary/entire screen if present
+        const preferred = sources.find(s => /Entire Screen|Screen 1|Primary/i.test(s.name)) || sources[0];
+        const platform = (await window.electronAPI.getPlatform?.()) || 'unknown';
+
+        // On macOS, system audio via desktop capture is generally unsupported without extra setup
+        const wantAudio = platform !== 'darwin';
+
+        const stream = await navigator.mediaDevices.getUserMedia({
+            audio: wantAudio ? { mandatory: { chromeMediaSource: 'desktop' } } : false,
+            video: {
+                mandatory: {
+                    chromeMediaSource: 'desktop',
+                    chromeMediaSourceId: preferred.id,
+                    maxFrameRate: 30,
+                    maxWidth: 1920,
+                    maxHeight: 1080
+                }
+            }
+        });
+
+        return stream;
+    }
+
     async startScreenCapture() {
         try {
             this.setStatus('Requesting screen access...');
             
-            // Check if getDisplayMedia is supported
-            if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-                // Try to enable it manually in Electron
-                if (window.electronAPI) {
-                    this.setStatus('Enabling screen capture in Electron...');
-                    // Wait a moment for Electron to initialize
-                    await new Promise(resolve => setTimeout(resolve, 1000));
-                } else {
-                    throw new Error('Screen sharing is not supported in this browser');
+            // Prefer Electron desktopCapturer path when available
+            let screenStream = null;
+            if (window.electronAPI && window.electronAPI.getDesktopSources) {
+                try {
+                    screenStream = await this.getElectronScreenStream();
+                } catch (e) {
+                    console.warn('Electron desktopCapturer path failed, falling back to getDisplayMedia:', e);
                 }
             }
-            
-            // Try different approaches for screen capture
-            let screenStream;
-            try {
-                screenStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: {
-                        mediaSource: 'screen',
-                        width: { ideal: 1920, max: 1920 },
-                        height: { ideal: 1080, max: 1080 },
-                        frameRate: { ideal: 30, max: 60 }
-                    },
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        sampleRate: 44100
-                    }
-                });
-            } catch (firstError) {
-                // Try with simpler constraints
-                this.setStatus('Retrying with simpler constraints...');
-                screenStream = await navigator.mediaDevices.getDisplayMedia({
-                    video: true,
-                    audio: true
-                });
+
+            // Fallback to getDisplayMedia if needed
+            if (!screenStream) {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                    throw new Error('Screen sharing is not supported in this environment');
+                }
+
+                try {
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: {
+                            width: { ideal: 1920, max: 1920 },
+                            height: { ideal: 1080, max: 1080 },
+                            frameRate: { ideal: 30, max: 60 }
+                        },
+                        // System audio support varies; request but handle failure below
+                        audio: true
+                    });
+                } catch (firstError) {
+                    console.warn('getDisplayMedia with audio failed, retrying video-only...', firstError);
+                    // Retry video-only, as audio is commonly unsupported
+                    screenStream = await navigator.mediaDevices.getDisplayMedia({
+                        video: true,
+                        audio: false
+                    });
+                }
             }
             
             this.screenStream = screenStream;
@@ -115,7 +148,7 @@ class ScreenRecorder {
             } else if (error.name === 'NotFoundError') {
                 errorMessage = 'No screen source found. Make sure you have a screen to share.';
             } else if (error.name === 'NotSupportedError') {
-                errorMessage = 'Screen sharing is not supported. Please use a modern browser or update Electron.';
+                errorMessage = 'Screen sharing is not supported in this environment. If on macOS, grant Screen Recording permission.';
             } else if (error.name === 'AbortError') {
                 errorMessage = 'Screen sharing was cancelled.';
             }

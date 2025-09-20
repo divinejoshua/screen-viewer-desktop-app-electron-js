@@ -382,6 +382,7 @@
         <div class="overlay-label">Camera</div>
         <video id="overlayVideo" autoplay muted playsinline></video>
         <div class="overlay-controls">
+            <button class="overlay-btn" id="pipOverlayBtn">PiP</button>
             <button class="overlay-btn" id="hideOverlayBtn">Hide</button>
             <button class="overlay-btn" id="showOverlayBtn" style="display: none;">Show</button>
         </div>
@@ -396,6 +397,7 @@
                 this.mediaRecorder = null;
                 this.recordedChunks = [];
                 this.isRecording = false;
+                this.isCombining = false;
                 this.recordingTime = 0;
                 this.timerInterval = null;
                 
@@ -424,6 +426,12 @@
                 this.overlayVideo = document.getElementById('overlayVideo');
                 this.hideOverlayBtn = document.getElementById('hideOverlayBtn');
                 this.showOverlayBtn = document.getElementById('showOverlayBtn');
+                this.pipOverlayBtn = document.getElementById('pipOverlayBtn');
+
+                // Drag state
+                this.isDraggingOverlay = false;
+                this.dragOffsetX = 0;
+                this.dragOffsetY = 0;
             }
 
             attachEventListeners() {
@@ -437,6 +445,12 @@
                 // Camera overlay controls
                 this.hideOverlayBtn.addEventListener('click', () => this.hideCameraOverlay());
                 this.showOverlayBtn.addEventListener('click', () => this.showCameraOverlay());
+                this.pipOverlayBtn.addEventListener('click', () => this.togglePictureInPicture());
+
+                // Draggable overlay
+                this.cameraOverlay.addEventListener('pointerdown', (e) => this.onOverlayPointerDown(e));
+                window.addEventListener('pointermove', (e) => this.onOverlayPointerMove(e));
+                window.addEventListener('pointerup', (e) => this.onOverlayPointerUp(e));
             }
 
             formatTime(seconds) {
@@ -476,6 +490,8 @@
                     this.screenVideo.srcObject = this.screenStream;
                     this.screenVideo.style.display = 'block';
                     this.screenNoPreview.style.display = 'none';
+                    // Ensure playback starts
+                    this.screenVideo.play?.().catch(() => {});
                     this.setStatus('Screen capture started', 'success');
                     
                     // Handle stream end
@@ -519,10 +535,13 @@
                     this.cameraVideo.srcObject = this.cameraStream;
                     this.cameraVideo.style.display = 'block';
                     this.cameraNoPreview.style.display = 'none';
+                    this.cameraVideo.play?.().catch(() => {});
                     
                     // Also show camera in overlay
                     this.overlayVideo.srcObject = this.cameraStream;
+                    this.overlayVideo.play?.().catch(() => {});
                     this.showCameraOverlay();
+                    this.restoreOverlayPosition();
                     
                     this.setStatus('Camera capture started', 'success');
                     
@@ -559,7 +578,9 @@
                     });
 
                     // Draw function to combine video streams
+                    this.isCombining = true;
                     const draw = () => {
+                        if (!this.isCombining) return;
                         if (this.screenVideo && this.cameraVideo) {
                             // Clear canvas
                             ctx.fillStyle = '#000';
@@ -581,10 +602,7 @@
                             // Draw camera video
                             ctx.drawImage(this.cameraVideo, x, y, cameraSize, cameraSize);
                         }
-                        
-                        if (this.isRecording) {
-                            requestAnimationFrame(draw);
-                        }
+                        requestAnimationFrame(draw);
                     };
 
                     // Start drawing
@@ -711,11 +729,13 @@
                     this.cameraStream = null;
                     this.cameraVideo.style.display = 'none';
                     this.cameraNoPreview.style.display = 'flex';
+                    this.hideCameraOverlay();
                 }
                 if (this.combinedStream) {
                     this.combinedStream.getTracks().forEach(track => track.stop());
                     this.combinedStream = null;
                 }
+                this.isCombining = false;
                 if (this.isRecording) {
                     this.stopRecording();
                 }
@@ -732,6 +752,69 @@
                 this.cameraOverlay.style.display = 'none';
                 this.hideOverlayBtn.style.display = 'none';
                 this.showOverlayBtn.style.display = 'block';
+            }
+
+            // Picture-in-Picture toggle for persistent camera view
+            async togglePictureInPicture() {
+                try {
+                    if (!document.pictureInPictureElement) {
+                        await this.overlayVideo.play?.();
+                        await this.overlayVideo.requestPictureInPicture();
+                        this.setStatus('Camera in Picture-in-Picture', 'success');
+                    } else {
+                        await document.exitPictureInPicture();
+                    }
+                } catch (e) {
+                    console.warn('PiP not available:', e);
+                    this.setStatus('Picture-in-Picture not supported', 'error');
+                }
+            }
+
+            // Draggable overlay handlers
+            onOverlayPointerDown(e) {
+                // Ignore drags that start on controls
+                if (e.target.closest('.overlay-controls')) return;
+                this.isDraggingOverlay = true;
+                const rect = this.cameraOverlay.getBoundingClientRect();
+                this.dragOffsetX = e.clientX - rect.left;
+                this.dragOffsetY = e.clientY - rect.top;
+                try { this.cameraOverlay.setPointerCapture(e.pointerId); } catch {}
+            }
+
+            onOverlayPointerMove(e) {
+                if (!this.isDraggingOverlay) return;
+                const newLeft = Math.min(window.innerWidth - this.cameraOverlay.offsetWidth, Math.max(0, e.clientX - this.dragOffsetX));
+                const newTop = Math.min(window.innerHeight - this.cameraOverlay.offsetHeight, Math.max(0, e.clientY - this.dragOffsetY));
+                this.cameraOverlay.style.left = `${newLeft}px`;
+                this.cameraOverlay.style.top = `${newTop}px`;
+                this.cameraOverlay.style.right = 'auto';
+            }
+
+            onOverlayPointerUp(e) {
+                if (!this.isDraggingOverlay) return;
+                this.isDraggingOverlay = false;
+                try { this.cameraOverlay.releasePointerCapture(e.pointerId); } catch {}
+                this.persistOverlayPosition();
+            }
+
+            persistOverlayPosition() {
+                const rect = this.cameraOverlay.getBoundingClientRect();
+                const position = { left: rect.left, top: rect.top };
+                try { localStorage.setItem('cameraOverlayPosition', JSON.stringify(position)); } catch {}
+            }
+
+            restoreOverlayPosition() {
+                try {
+                    const saved = localStorage.getItem('cameraOverlayPosition');
+                    if (saved) {
+                        const pos = JSON.parse(saved);
+                        if (Number.isFinite(pos.left) && Number.isFinite(pos.top)) {
+                            this.cameraOverlay.style.left = `${pos.left}px`;
+                            this.cameraOverlay.style.top = `${pos.top}px`;
+                            this.cameraOverlay.style.right = 'auto';
+                        }
+                    }
+                } catch {}
             }
         }
 
