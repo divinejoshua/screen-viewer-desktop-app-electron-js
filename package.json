@@ -8,10 +8,34 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "build": "electron-builder",
+    "build:mac": "electron-builder --mac",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "dependencies": {},
   "devDependencies": {
-    "electron": "^38.1.2"
+    "electron": "^27.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.screenviewer.app",
+    "productName": "Screen & Camera Recorder",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!node_modules/**/*"
+    ],
+    "mac": {
+      "extendInfo": {
+        "NSCameraUsageDescription": "This app needs camera access to record video with your face visible.",
+        "NSMicrophoneUsageDescription": "This app needs microphone access to record audio with your screen and camera.",
+        "NSScreenCaptureUsageDescription": "This app needs screen recording permission to capture your screen.",
+        "NSCameraUseContinuityCameraDeviceType": true,
+        "NSDesktopFolderUsageDescription": "This app needs access to save recorded videos to your desktop.",
+        "NSDocumentsFolderUsageDescription": "This app needs access to save recorded videos to your documents folder."
+      },
+      "category": "public.app-category.video"
+    }
   }
 }

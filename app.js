@@ -56,22 +56,42 @@ class ScreenRecorder {
             
             // Check if getDisplayMedia is supported
             if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
-                throw new Error('Screen sharing is not supported in this browser');
+                // Try to enable it manually in Electron
+                if (window.electronAPI) {
+                    this.setStatus('Enabling screen capture in Electron...');
+                    // Wait a moment for Electron to initialize
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                } else {
+                    throw new Error('Screen sharing is not supported in this browser');
+                }
             }
             
-            this.screenStream = await navigator.mediaDevices.getDisplayMedia({
-                video: {
-                    mediaSource: 'screen',
-                    width: { ideal: 1920, max: 1920 },
-                    height: { ideal: 1080, max: 1080 },
-                    frameRate: { ideal: 30, max: 60 }
-                },
-                audio: {
-                    echoCancellation: true,
-                    noiseSuppression: true,
-                    sampleRate: 44100
-                }
-            });
+            // Try different approaches for screen capture
+            let screenStream;
+            try {
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: {
+                        mediaSource: 'screen',
+                        width: { ideal: 1920, max: 1920 },
+                        height: { ideal: 1080, max: 1080 },
+                        frameRate: { ideal: 30, max: 60 }
+                    },
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 44100
+                    }
+                });
+            } catch (firstError) {
+                // Try with simpler constraints
+                this.setStatus('Retrying with simpler constraints...');
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: true,
+                    audio: true
+                });
+            }
+            
+            this.screenStream = screenStream;
             
             this.screenVideo.srcObject = this.screenStream;
             this.screenVideo.style.display = 'block';
@@ -324,5 +344,8 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Running in browser - screen sharing may have limitations');
     }
     
-    new ScreenRecorder();
+    // Wait a bit for Electron to fully initialize
+    setTimeout(() => {
+        new ScreenRecorder();
+    }, 500);
 });

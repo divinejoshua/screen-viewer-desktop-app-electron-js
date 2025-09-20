@@ -2,6 +2,17 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 
+// Set Info.plist for macOS permissions
+if (process.platform === 'darwin') {
+  app.commandLine.appendSwitch('--enable-features', 'VaapiVideoDecoder,WebRTC');
+  app.commandLine.appendSwitch('--disable-features', 'VizDisplayCompositor');
+  app.commandLine.appendSwitch('--enable-usermedia-screen-capture');
+  app.commandLine.appendSwitch('--auto-select-desktop-capture-source');
+  
+  // Suppress the specific warnings by setting environment variables
+  process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = 'true';
+}
+
 let mainWindow;
 
 function createWindow() {
@@ -36,9 +47,16 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
-  // Handle screen sharing permissions
-  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder');
+  // Handle screen sharing permissions and enable getDisplayMedia
+  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder,WebRTC');
   app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
+  app.commandLine.appendSwitch('enable-usermedia-screen-capture');
+  app.commandLine.appendSwitch('auto-select-desktop-capture-source');
+  
+  // Set Info.plist for macOS permissions
+  if (process.platform === 'darwin') {
+    app.setAppUserModelId('com.screenviewer.app');
+  }
   
   createWindow();
 });
