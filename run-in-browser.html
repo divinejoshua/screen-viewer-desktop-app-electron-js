@@ -236,6 +236,63 @@
             color: #f44336;
         }
 
+        /* Camera overlay styles */
+        .camera-overlay {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            width: 200px;
+            height: 150px;
+            background: rgba(0, 0, 0, 0.8);
+            border-radius: 12px;
+            border: 3px solid #fff;
+            z-index: 9999;
+            display: none;
+            overflow: hidden;
+        }
+
+        .camera-overlay video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transform: scaleX(-1); /* Mirror effect */
+        }
+
+        .camera-overlay .overlay-label {
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+
+        .camera-overlay .overlay-controls {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            display: flex;
+            gap: 5px;
+        }
+
+        .camera-overlay .overlay-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: none;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            cursor: pointer;
+            transition: background 0.3s ease;
+        }
+
+        .camera-overlay .overlay-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
         @media (max-width: 768px) {
             .preview-container {
                 grid-template-columns: 1fr;
@@ -320,6 +377,16 @@
         </div>
     </div>
 
+    <!-- Camera Overlay -->
+    <div class="camera-overlay" id="cameraOverlay">
+        <div class="overlay-label">Camera</div>
+        <video id="overlayVideo" autoplay muted playsinline></video>
+        <div class="overlay-controls">
+            <button class="overlay-btn" id="hideOverlayBtn">Hide</button>
+            <button class="overlay-btn" id="showOverlayBtn" style="display: none;">Show</button>
+        </div>
+    </div>
+
     <script>
         class ScreenRecorder {
             constructor() {
@@ -351,6 +418,12 @@
                 this.startRecordingBtn = document.getElementById('startRecordingBtn');
                 this.stopRecordingBtn = document.getElementById('stopRecordingBtn');
                 this.stopAllBtn = document.getElementById('stopAllBtn');
+                
+                // Camera overlay elements
+                this.cameraOverlay = document.getElementById('cameraOverlay');
+                this.overlayVideo = document.getElementById('overlayVideo');
+                this.hideOverlayBtn = document.getElementById('hideOverlayBtn');
+                this.showOverlayBtn = document.getElementById('showOverlayBtn');
             }
 
             attachEventListeners() {
@@ -360,6 +433,10 @@
                 this.startRecordingBtn.addEventListener('click', () => this.startRecording());
                 this.stopRecordingBtn.addEventListener('click', () => this.stopRecording());
                 this.stopAllBtn.addEventListener('click', () => this.stopAllStreams());
+                
+                // Camera overlay controls
+                this.hideOverlayBtn.addEventListener('click', () => this.hideCameraOverlay());
+                this.showOverlayBtn.addEventListener('click', () => this.showCameraOverlay());
             }
 
             formatTime(seconds) {
@@ -442,6 +519,11 @@
                     this.cameraVideo.srcObject = this.cameraStream;
                     this.cameraVideo.style.display = 'block';
                     this.cameraNoPreview.style.display = 'none';
+                    
+                    // Also show camera in overlay
+                    this.overlayVideo.srcObject = this.cameraStream;
+                    this.showCameraOverlay();
+                    
                     this.setStatus('Camera capture started', 'success');
                     
                 } catch (error) {
@@ -526,8 +608,16 @@
                     
                     this.recordedChunks = [];
                     
+                    // Try different formats for better compatibility
+                    let mimeType = 'video/webm;codecs=vp9';
+                    if (MediaRecorder.isTypeSupported('video/mp4')) {
+                        mimeType = 'video/mp4';
+                    } else if (MediaRecorder.isTypeSupported('video/webm;codecs=vp8')) {
+                        mimeType = 'video/webm;codecs=vp8';
+                    }
+                    
                     this.mediaRecorder = new MediaRecorder(this.combinedStream, {
-                        mimeType: 'video/webm;codecs=vp9'
+                        mimeType: mimeType
                     });
                     
                     this.mediaRecorder.ondataavailable = (event) => {
@@ -537,8 +627,8 @@
                     };
                     
                     this.mediaRecorder.onstop = () => {
-                        const blob = new Blob(this.recordedChunks, { type: 'video/webm' });
-                        this.saveVideo(blob);
+                        const blob = new Blob(this.recordedChunks, { type: mimeType });
+                        this.saveVideo(blob, mimeType);
                     };
                     
                     this.mediaRecorder.start(1000); // Collect data every second
@@ -579,21 +669,29 @@
                 }
             }
 
-            async saveVideo(blob) {
+            async saveVideo(blob, mimeType) {
                 try {
                     this.setStatus('Saving video...');
+                    
+                    // Determine file extension based on mime type
+                    let extension = 'webm';
+                    if (mimeType.includes('mp4')) {
+                        extension = 'mp4';
+                    } else if (mimeType.includes('webm')) {
+                        extension = 'webm';
+                    }
                     
                     // Create download link
                     const url = URL.createObjectURL(blob);
                     const a = document.createElement('a');
                     a.href = url;
-                    a.download = `recording-${Date.now()}.webm`;
+                    a.download = `recording-${Date.now()}.${extension}`;
                     document.body.appendChild(a);
                     a.click();
                     document.body.removeChild(a);
                     URL.revokeObjectURL(url);
                     
-                    this.setStatus('Video downloaded successfully', 'success');
+                    this.setStatus(`Video downloaded successfully as ${extension.toUpperCase()}`, 'success');
                     
                 } catch (error) {
                     console.error('Error saving video:', error);
@@ -622,6 +720,18 @@
                     this.stopRecording();
                 }
                 this.setStatus('All streams stopped');
+            }
+
+            showCameraOverlay() {
+                this.cameraOverlay.style.display = 'block';
+                this.hideOverlayBtn.style.display = 'block';
+                this.showOverlayBtn.style.display = 'none';
+            }
+
+            hideCameraOverlay() {
+                this.cameraOverlay.style.display = 'none';
+                this.hideOverlayBtn.style.display = 'none';
+                this.showOverlayBtn.style.display = 'block';
             }
         }
 
