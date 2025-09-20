@@ -1,8 +1,6 @@
 node_modules
-dist
-out
-.next
 *.log
 .DS_Store
 *.webm
 *.mp4
+.env

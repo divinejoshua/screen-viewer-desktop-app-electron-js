@@ -12,18 +12,22 @@ function createWindow() {
       nodeIntegration: false,
       contextIsolation: true,
       enableRemoteModule: false,
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      // Enable screen sharing
+      webSecurity: false,
+      allowRunningInsecureContent: true,
+      experimentalFeatures: true
     },
     icon: path.join(__dirname, 'assets/icon.png'), // Optional icon
     title: 'Screen & Camera Recorder'
   });
 
-  // Load the app
+  // Load the HTML file directly
+  mainWindow.loadFile('index.html');
+  
+  // Open DevTools in development
   if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:3000');
     mainWindow.webContents.openDevTools();
-  } else {
-    mainWindow.loadFile('out/index.html');
   }
 
   mainWindow.on('closed', () => {
@@ -31,7 +35,13 @@ function createWindow() {
   });
 }
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  // Handle screen sharing permissions
+  app.commandLine.appendSwitch('enable-features', 'VaapiVideoDecoder');
+  app.commandLine.appendSwitch('disable-features', 'VizDisplayCompositor');
+  
+  createWindow();
+});
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
@@ -58,7 +68,9 @@ ipcMain.handle('save-video', async (event, buffer) => {
     });
 
     if (!result.canceled && result.filePath) {
-      fs.writeFileSync(result.filePath, buffer);
+      // Convert Uint8Array to Buffer if needed
+      const bufferData = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+      fs.writeFileSync(result.filePath, bufferData);
       return { success: true, path: result.filePath };
     }
     
